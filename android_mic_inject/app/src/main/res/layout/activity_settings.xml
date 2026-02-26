@@ -11,56 +11,43 @@
         android:text="PC Mic Inject 设置"
         android:textSize="22sp"
         android:textStyle="bold"
-        android:layout_marginBottom="24dp" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="PC IP 地址"
-        android:textSize="14sp" />
-
-    <EditText
-        android:id="@+id/et_ip"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="192.168.x.x"
-        android:inputType="text"
-        android:layout_marginBottom="16dp" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="端口"
-        android:textSize="14sp" />
-
-    <EditText
-        android:id="@+id/et_port"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="9876"
-        android:inputType="number"
         android:layout_marginBottom="16dp" />
 
     <Switch
-        android:id="@+id/sw_enable"
+        android:id="@+id/sw_mic_service"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="启用音频注入"
+        android:text="使用麦克风服务"
         android:textSize="16sp"
-        android:layout_marginBottom="24dp" />
-
-    <Button
-        android:id="@+id/btn_save"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="保存设置" />
+        android:layout_marginBottom="16dp" />
 
     <TextView
         android:id="@+id/tv_status"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="状态: 未保存"
+        android:text="正在扫描局域网..."
         android:textSize="14sp"
-        android:layout_marginTop="16dp" />
+        android:layout_marginBottom="8dp" />
+
+    <ProgressBar
+        android:id="@+id/pb_scanning"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:indeterminate="true"
+        android:layout_marginBottom="8dp" />
+
+    <ListView
+        android:id="@+id/lv_devices"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <Button
+        android:id="@+id/btn_disconnect"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="断开连接"
+        android:visibility="gone" />
 
 </LinearLayout>

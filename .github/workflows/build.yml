@@ -29,6 +29,15 @@ jobs:
         with:
           gradle-version: 7.6.4
 
+      - name: Generate signing keystore
+        run: |
+          mkdir -p keystore
+          keytool -genkeypair -v \
+            -keystore keystore/release.jks \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -alias pcmic -storepass pcmic12345 -keypass pcmic12345 \
+            -dname "CN=PcMicInject,OU=Dev,O=PcMic,L=Unknown,ST=Unknown,C=CN"
+
       - name: Build Release APK
         run: gradle assembleRelease
 

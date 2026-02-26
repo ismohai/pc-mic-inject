@@ -14,9 +14,19 @@ android {
         versionName "1.0"
     }
 
+    signingConfigs {
+        release {
+            storeFile file("${rootProject.projectDir}/keystore/release.jks")
+            storePassword "pcmic12345"
+            keyAlias "pcmic"
+            keyPassword "pcmic12345"
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
+            signingConfig signingConfigs.release
         }
     }
 
