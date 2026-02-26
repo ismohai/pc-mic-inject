@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="xposed_scope">
+        <!-- LSPosed 推荐作用域，实际由用户在 LSPosed 中勾选 -->
+    </string-array>
+</resources>

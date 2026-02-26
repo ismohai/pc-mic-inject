@@ -1,0 +1,15 @@
+*.iml
+.gradle/
+local.properties
+.idea/
+build/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+__pycache__/
+*.pyc
+.DS_Store
+*.jpg
+.claude/
