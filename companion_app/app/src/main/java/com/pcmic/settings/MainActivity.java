@@ -5,28 +5,20 @@ import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.text.Editable;
-import android.text.TextWatcher;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.*;
 import java.io.*;
+import java.net.*;
+import java.util.*;
 
-/**
- * PcMic 设置界面
- * 读写 /data/adb/pcmic/config.properties
- * 需要 root 权限
- */
 public class MainActivity extends Activity {
     private static final String CONFIG_PATH = "/data/adb/pcmic/config.properties";
+    private static final String PID_FILE = "/data/adb/pcmic/daemon.pid";
 
     private Switch swEnabled;
     private EditText etPort;
-    private TextView tvStatus;
-    private TextView tvDaemonStatus;
-    private Button btnSave;
-    private Button btnRestart;
-
+    private TextView tvStatus, tvDaemonStatus, tvPhoneIp;
+    private Button btnSave, btnStart, btnStop;
     private Handler handler = new Handler(Looper.getMainLooper());
 
     @Override
@@ -34,278 +26,314 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         buildUI();
         loadConfig();
-        checkDaemonStatus();
+        refreshStatus();
     }
 
     private void buildUI() {
-        // 根布局
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(Color.parseColor("#F5F5F5"));
-
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(24), dp(32), dp(24), dp(24));
 
-        // 标题
+        // Title
         TextView title = new TextView(this);
-        title.setText("PcMic 虚拟麦克风");
+        title.setText("PcMic Virtual Mic");
         title.setTextSize(22);
         title.setTextColor(Color.parseColor("#1A1A1A"));
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         root.addView(title);
 
-        TextView subtitle = new TextView(this);
-        subtitle.setText("使用电脑作为手机的麦克风输入");
-        subtitle.setTextSize(13);
-        subtitle.setTextColor(Color.parseColor("#888888"));
-        subtitle.setPadding(0, dp(4), 0, dp(20));
-        root.addView(subtitle);
+        TextView sub = new TextView(this);
+        sub.setText("Use PC audio as phone microphone input");
+        sub.setTextSize(13);
+        sub.setTextColor(Color.parseColor("#888"));
+        sub.setPadding(0, dp(4), 0, dp(20));
+        root.addView(sub);
 
-        // ---- 服务状态卡片 ----
+        // Status card
         LinearLayout statusCard = makeCard();
-
-        TextView statusTitle = new TextView(this);
-        statusTitle.setText("服务状态");
-        statusTitle.setTextSize(15);
-        statusTitle.setTextColor(Color.parseColor("#333333"));
-        statusTitle.setTypeface(null, android.graphics.Typeface.BOLD);
-        statusCard.addView(statusTitle);
-
+        addBoldLabel(statusCard, "Service Status");
         tvDaemonStatus = new TextView(this);
-        tvDaemonStatus.setText("检查中...");
+        tvDaemonStatus.setText("Checking...");
         tvDaemonStatus.setTextSize(13);
         tvDaemonStatus.setTextColor(Color.parseColor("#FF9800"));
-        tvDaemonStatus.setPadding(0, dp(8), 0, 0);
+        tvDaemonStatus.setPadding(0, dp(6), 0, 0);
         statusCard.addView(tvDaemonStatus);
 
+        tvPhoneIp = new TextView(this);
+        tvPhoneIp.setText("Phone IP: ...");
+        tvPhoneIp.setTextSize(13);
+        tvPhoneIp.setTextColor(Color.parseColor("#333"));
+        tvPhoneIp.setPadding(0, dp(6), 0, 0);
+        statusCard.addView(tvPhoneIp);
         root.addView(statusCard);
 
-        // ---- 启用开关卡片 ----
-        LinearLayout enableCard = makeCard();
-
-        LinearLayout enableRow = new LinearLayout(this);
-        enableRow.setOrientation(LinearLayout.HORIZONTAL);
-        enableRow.setGravity(Gravity.CENTER_VERTICAL);
-
-        TextView enableLabel = new TextView(this);
-        enableLabel.setText("启用虚拟麦克风");
-        enableLabel.setTextSize(15);
-        enableLabel.setTextColor(Color.parseColor("#333333"));
-        enableLabel.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        enableRow.addView(enableLabel);
-
+        // Enable switch card
+        LinearLayout enCard = makeCard();
+        LinearLayout enRow = new LinearLayout(this);
+        enRow.setOrientation(LinearLayout.HORIZONTAL);
+        enRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView enLabel = new TextView(this);
+        enLabel.setText("Enable Virtual Mic");
+        enLabel.setTextSize(15);
+        enLabel.setTextColor(Color.parseColor("#333"));
+        enLabel.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        enRow.addView(enLabel);
         swEnabled = new Switch(this);
         swEnabled.setChecked(true);
-        enableRow.addView(swEnabled);
+        enRow.addView(swEnabled);
+        enCard.addView(enRow);
 
-        enableCard.addView(enableRow);
-        root.addView(enableCard);
+        TextView enHint = new TextView(this);
+        enHint.setText("Note: Toggling requires app restart to take effect");
+        enHint.setTextSize(11);
+        enHint.setTextColor(Color.parseColor("#999"));
+        enHint.setPadding(0, dp(4), 0, 0);
+        enCard.addView(enHint);
+        root.addView(enCard);
 
-        // ---- 端口设置卡片 ----
+        // Port card
         LinearLayout portCard = makeCard();
-
-        TextView portLabel = new TextView(this);
-        portLabel.setText("监听端口");
-        portLabel.setTextSize(15);
-        portLabel.setTextColor(Color.parseColor("#333333"));
-        portLabel.setTypeface(null, android.graphics.Typeface.BOLD);
-        portCard.addView(portLabel);
-
+        addBoldLabel(portCard, "Listen Port");
         TextView portHint = new TextView(this);
-        portHint.setText("PC端连接到此端口发送音频");
+        portHint.setText("PC connects to this port to send audio");
         portHint.setTextSize(12);
-        portHint.setTextColor(Color.parseColor("#999999"));
+        portHint.setTextColor(Color.parseColor("#999"));
         portHint.setPadding(0, dp(2), 0, dp(8));
         portCard.addView(portHint);
-
         etPort = new EditText(this);
         etPort.setText("9876");
         etPort.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
         etPort.setTextSize(16);
-        etPort.setBackgroundColor(Color.parseColor("#EEEEEE"));
+        etPort.setBackgroundColor(Color.parseColor("#EEE"));
         etPort.setPadding(dp(12), dp(10), dp(12), dp(10));
         portCard.addView(etPort);
-
         root.addView(portCard);
 
-        // ---- 按钮区 ----
-        LinearLayout btnRow = new LinearLayout(this);
-        btnRow.setOrientation(LinearLayout.HORIZONTAL);
-        btnRow.setPadding(0, dp(16), 0, 0);
-        btnRow.setGravity(Gravity.CENTER);
+        // Buttons
+        LinearLayout row1 = new LinearLayout(this);
+        row1.setOrientation(LinearLayout.HORIZONTAL);
+        row1.setPadding(0, dp(12), 0, 0);
 
-        btnSave = new Button(this);
-        btnSave.setText("保存配置");
-        btnSave.setTextSize(14);
-        btnSave.setBackgroundColor(Color.parseColor("#2196F3"));
-        btnSave.setTextColor(Color.WHITE);
-        btnSave.setPadding(dp(24), dp(12), dp(24), dp(12));
+        btnSave = makeBtn("Save Config", "#2196F3");
         btnSave.setOnClickListener(v -> saveConfig());
-        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-        btnLp.setMargins(0, 0, dp(8), 0);
-        btnSave.setLayoutParams(btnLp);
-        btnRow.addView(btnSave);
+        row1.addView(btnSave, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
-        btnRestart = new Button(this);
-        btnRestart.setText("重启服务");
-        btnRestart.setTextSize(14);
-        btnRestart.setBackgroundColor(Color.parseColor("#FF9800"));
-        btnRestart.setTextColor(Color.WHITE);
-        btnRestart.setPadding(dp(24), dp(12), dp(24), dp(12));
-        btnRestart.setOnClickListener(v -> restartDaemon());
-        LinearLayout.LayoutParams btn2Lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-        btn2Lp.setMargins(dp(8), 0, 0, 0);
-        btnRestart.setLayoutParams(btn2Lp);
-        btnRow.addView(btnRestart);
+        root.addView(row1);
 
-        root.addView(btnRow);
+        LinearLayout row2 = new LinearLayout(this);
+        row2.setOrientation(LinearLayout.HORIZONTAL);
+        row2.setPadding(0, dp(8), 0, 0);
 
-        // ---- 状态提示 ----
+        btnStart = makeBtn("Start Service", "#4CAF50");
+        btnStart.setOnClickListener(v -> startDaemon());
+        LinearLayout.LayoutParams lp1 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        lp1.setMargins(0, 0, dp(4), 0);
+        row2.addView(btnStart, lp1);
+
+        btnStop = makeBtn("Stop Service", "#F44336");
+        btnStop.setOnClickListener(v -> stopDaemon());
+        LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        lp2.setMargins(dp(4), 0, 0, 0);
+        row2.addView(btnStop, lp2);
+
+        root.addView(row2);
+
         tvStatus = new TextView(this);
-        tvStatus.setText("");
         tvStatus.setTextSize(13);
         tvStatus.setTextColor(Color.parseColor("#4CAF50"));
         tvStatus.setPadding(0, dp(12), 0, 0);
         tvStatus.setGravity(Gravity.CENTER);
         root.addView(tvStatus);
 
-        // ---- 使用说明卡片 ----
+        // Help
         LinearLayout helpCard = makeCard();
-        TextView helpTitle = new TextView(this);
-        helpTitle.setText("使用说明");
-        helpTitle.setTextSize(15);
-        helpTitle.setTextColor(Color.parseColor("#333333"));
-        helpTitle.setTypeface(null, android.graphics.Typeface.BOLD);
-        helpCard.addView(helpTitle);
-
-        TextView helpText = new TextView(this);
-        helpText.setText(
-            "1. 确保手机和电脑在同一WiFi网络\n" +
-            "2. 在电脑端运行 start_streamer.bat\n" +
-            "3. 在电脑端输入手机IP并开始推流\n" +
-            "4. 手机上所有应用的麦克风将自动替换\n" +
-            "5. PC断开连接后自动恢复手机麦克风\n\n" +
-            "配置文件: /data/adb/pcmic/config.properties"
+        addBoldLabel(helpCard, "Instructions");
+        TextView help = new TextView(this);
+        help.setText(
+            "1. Both phone and PC must be on the same WiFi\n" +
+            "2. Note this phone's IP address shown above\n" +
+            "3. On PC, run start_streamer.bat\n" +
+            "4. Enter this phone's IP in the PC app\n" +
+            "5. Click 'Connect & Stream' on PC\n" +
+            "6. All apps' mic will use PC audio\n" +
+            "7. Disconnect PC to restore real mic\n\n" +
+            "Config: /data/adb/pcmic/config.properties"
         );
-        helpText.setTextSize(13);
-        helpText.setTextColor(Color.parseColor("#666666"));
-        helpText.setPadding(0, dp(8), 0, 0);
-        helpText.setLineSpacing(dp(3), 1);
-        helpCard.addView(helpText);
-
+        help.setTextSize(13);
+        help.setTextColor(Color.parseColor("#666"));
+        help.setPadding(0, dp(8), 0, 0);
+        help.setLineSpacing(dp(3), 1);
+        helpCard.addView(help);
         root.addView(helpCard);
 
         scroll.addView(root);
         setContentView(scroll);
     }
 
+    private Button makeBtn(String text, String color) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setTextSize(14);
+        b.setBackgroundColor(Color.parseColor(color));
+        b.setTextColor(Color.WHITE);
+        b.setPadding(dp(16), dp(12), dp(16), dp(12));
+        return b;
+    }
+
+    private void addBoldLabel(LinearLayout parent, String text) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextSize(15);
+        tv.setTextColor(Color.parseColor("#333"));
+        tv.setTypeface(null, android.graphics.Typeface.BOLD);
+        parent.addView(tv);
+    }
+
     private LinearLayout makeCard() {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundColor(Color.WHITE);
-        card.setPadding(dp(16), dp(14), dp(16), dp(14));
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackgroundColor(Color.WHITE);
+        c.setPadding(dp(16), dp(14), dp(16), dp(14));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         lp.setMargins(0, 0, 0, dp(12));
-        card.setLayoutParams(lp);
-        card.setElevation(dp(2));
-        return card;
+        c.setLayoutParams(lp);
+        c.setElevation(dp(2));
+        return c;
     }
 
     private int dp(int v) {
-        return (int) (v * getResources().getDisplayMetrics().density);
+        return (int)(v * getResources().getDisplayMetrics().density);
     }
 
-    // ---- Root命令执行 ----
     private String execRoot(String cmd) {
         try {
             Process p = Runtime.getRuntime().exec(new String[]{"su", "-c", cmd});
             BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream()));
             StringBuilder sb = new StringBuilder();
             String line;
-            while ((line = br.readLine()) != null) {
-                sb.append(line).append("\n");
-            }
+            while ((line = br.readLine()) != null) sb.append(line).append("\n");
             p.waitFor();
             return sb.toString().trim();
-        } catch (Exception e) {
-            return "";
-        }
+        } catch (Exception e) { return ""; }
     }
 
-    // ---- 配置读写 ----
     private void loadConfig() {
         new Thread(() -> {
             String content = execRoot("cat " + CONFIG_PATH + " 2>/dev/null");
+            String ip = getWifiIp();
             handler.post(() -> {
+                tvPhoneIp.setText("Phone IP: " + ip);
                 if (content.isEmpty()) {
-                    tvStatus.setText("未找到配置文件，请先安装KernelSU模块");
+                    tvStatus.setText("Config not found. Install KSU module first.");
                     tvStatus.setTextColor(Color.parseColor("#F44336"));
                     return;
                 }
-                for (String line : content.split("\n")) {
-                    line = line.trim();
-                    if (line.startsWith("enabled=")) {
-                        swEnabled.setChecked(line.substring(8).trim().equals("true"));
-                    } else if (line.startsWith("port=")) {
-                        etPort.setText(line.substring(5).trim());
-                    }
+                for (String l : content.split("\n")) {
+                    l = l.trim();
+                    if (l.startsWith("enabled="))
+                        swEnabled.setChecked(l.substring(8).trim().equals("true"));
+                    else if (l.startsWith("port="))
+                        etPort.setText(l.substring(5).trim());
                 }
-                tvStatus.setText("配置已加载");
+                tvStatus.setText("Config loaded");
                 tvStatus.setTextColor(Color.parseColor("#4CAF50"));
             });
         }).start();
+    }
+
+    private String getWifiIp() {
+        try {
+            Enumeration<NetworkInterface> nets = NetworkInterface.getNetworkInterfaces();
+            while (nets.hasMoreElements()) {
+                NetworkInterface ni = nets.nextElement();
+                if (ni.isLoopback() || !ni.isUp()) continue;
+                Enumeration<InetAddress> addrs = ni.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    InetAddress a = addrs.nextElement();
+                    if (a instanceof Inet4Address && !a.isLoopbackAddress())
+                        return a.getHostAddress();
+                }
+            }
+        } catch (Exception e) {}
+        return "unknown";
     }
 
     private void saveConfig() {
         boolean enabled = swEnabled.isChecked();
         String port = etPort.getText().toString().trim();
         if (port.isEmpty()) port = "9876";
-
-        String config = "enabled=" + enabled + "\n" +
-                        "port=" + port + "\n" +
-                        "sample_rate=48000\n" +
-                        "channels=2\n";
-
-        String finalPort = port;
+        String cfg = "enabled=" + enabled + "\nport=" + port + "\nsample_rate=48000\nchannels=2\n";
         new Thread(() -> {
             execRoot("mkdir -p /data/adb/pcmic");
-            execRoot("echo '" + config + "' > " + CONFIG_PATH);
+            // Use printf to avoid echo interpretation issues
+            execRoot("printf '%s' '" + cfg.replace("'", "'\\''") + "' > " + CONFIG_PATH);
             handler.post(() -> {
-                tvStatus.setText("✓ 配置已保存");
+                tvStatus.setText("Config saved");
                 tvStatus.setTextColor(Color.parseColor("#4CAF50"));
             });
         }).start();
     }
 
-    private void restartDaemon() {
-        tvStatus.setText("正在重启服务...");
+    private void stopDaemon() {
+        tvStatus.setText("Stopping...");
         tvStatus.setTextColor(Color.parseColor("#FF9800"));
         new Thread(() -> {
+            // Read PID file and kill specifically
+            String pid = execRoot("cat " + PID_FILE + " 2>/dev/null").trim();
+            if (!pid.isEmpty()) {
+                execRoot("kill " + pid + " 2>/dev/null");
+            }
             execRoot("killall pcmic-daemon 2>/dev/null");
             try { Thread.sleep(500); } catch (Exception e) {}
-            String port = etPort.getText().toString().trim();
-            if (port.isEmpty()) port = "9876";
-            // Find module path and start daemon
-            execRoot("sh /data/adb/modules/pcmic/service.sh &");
-            try { Thread.sleep(1500); } catch (Exception e) {}
+            execRoot("rm -f " + PID_FILE);
             handler.post(() -> {
-                tvStatus.setText("✓ 服务已重启");
+                tvStatus.setText("Service stopped");
                 tvStatus.setTextColor(Color.parseColor("#4CAF50"));
-                checkDaemonStatus();
+                refreshStatus();
             });
         }).start();
     }
 
-    private void checkDaemonStatus() {
+    private void startDaemon() {
+        tvStatus.setText("Starting...");
+        tvStatus.setTextColor(Color.parseColor("#FF9800"));
         new Thread(() -> {
-            String result = execRoot("pidof pcmic-daemon 2>/dev/null");
+            // Stop existing first
+            execRoot("killall pcmic-daemon 2>/dev/null");
+            try { Thread.sleep(300); } catch (Exception e) {}
+            String port = etPort.getText().toString().trim();
+            if (port.isEmpty()) port = "9876";
+            String modDir = execRoot("ls -d /data/adb/modules/pcmic 2>/dev/null").trim();
+            if (!modDir.isEmpty()) {
+                execRoot(modDir + "/pcmic-daemon " + port + " &");
+            } else {
+                // Try common paths
+                execRoot("/data/adb/modules/pcmic/pcmic-daemon " + port + " &");
+            }
+            try { Thread.sleep(1000); } catch (Exception e) {}
             handler.post(() -> {
-                if (result != null && !result.isEmpty()) {
-                    tvDaemonStatus.setText("● 运行中 (PID: " + result.trim() + ")");
+                tvStatus.setText("Service started");
+                tvStatus.setTextColor(Color.parseColor("#4CAF50"));
+                refreshStatus();
+            });
+        }).start();
+    }
+
+    private void refreshStatus() {
+        new Thread(() -> {
+            String pid = execRoot("cat " + PID_FILE + " 2>/dev/null").trim();
+            String running = execRoot("pidof pcmic-daemon 2>/dev/null").trim();
+            String ip = getWifiIp();
+            handler.post(() -> {
+                tvPhoneIp.setText("Phone IP: " + ip);
+                if (!running.isEmpty()) {
+                    tvDaemonStatus.setText("Running (PID: " + running + ")");
                     tvDaemonStatus.setTextColor(Color.parseColor("#4CAF50"));
                 } else {
-                    tvDaemonStatus.setText("● 未运行");
+                    tvDaemonStatus.setText("Not running");
                     tvDaemonStatus.setTextColor(Color.parseColor("#F44336"));
                 }
             });
