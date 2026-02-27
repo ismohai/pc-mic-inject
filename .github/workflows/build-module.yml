@@ -78,18 +78,21 @@ jobs:
 
       - name: Build Companion App
         working-directory: companion_app
-        run: gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log || true
+        run: |
+          gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+          echo "=== Searching for APK ==="
+          find . -name "*.apk" -type f
 
       - name: Find APK
         id: find-apk
         run: |
-          APK=$(find companion_app -name "*.apk" -path "*/release/*" | head -1)
+          APK=$(find companion_app -name "*.apk" -type f | head -1)
           echo "apk_path=$APK" >> $GITHUB_OUTPUT
           if [ -n "$APK" ]; then
             echo "APK found: $APK"
           else
-            echo "WARNING: No APK found, checking build log..."
-            tail -30 companion_app/build.log || true
+            echo "WARNING: No APK found"
+            tail -50 companion_app/build.log || true
           fi
 
       # ---- Collect all artifacts ----
@@ -102,7 +105,11 @@ jobs:
           APK="${{ steps.find-apk.outputs.apk_path }}"
           if [ -n "$APK" ] && [ -f "$APK" ]; then
             cp "$APK" dist/PcMic-Settings.apk
+          else
+            echo "WARNING: APK not available, skipping"
           fi
+          echo "=== dist contents ==="
+          ls -la dist/
 
       - name: Upload dist
         uses: actions/upload-artifact@v4
