@@ -102,12 +102,7 @@ jobs:
           cp ksu_module/PcMic-Module-v1.0.0.zip dist/
           cp -r pc_audio_streamer dist/
           cp start_streamer.bat dist/
-          APK="${{ steps.find-apk.outputs.apk_path }}"
-          if [ -n "$APK" ] && [ -f "$APK" ]; then
-            cp "$APK" dist/PcMic-Settings.apk
-          else
-            echo "WARNING: APK not available, skipping"
-          fi
+          cp companion_app/app/build/outputs/apk/debug/app-debug.apk dist/PcMic-Settings.apk || echo "WARNING: APK not copied"
           echo "=== dist contents ==="
           ls -la dist/
 
