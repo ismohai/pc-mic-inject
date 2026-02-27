@@ -8,7 +8,13 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
 public class MainHook implements IXposedHookLoadPackage {
 
     private static final String TAG = "PcMic";
+    private static final String MODULE_PACKAGE = "com.pcmic.xposed";
+    private static final String PREFS_NAME = "pcmic_config";
     private static XSharedPreferences sPrefs;
+
+    private static void reloadPrefs() {
+        if (sPrefs != null) sPrefs.reload();
+    }
 
     /**
      * Check if mic service is enabled. Reloads prefs each call
@@ -16,43 +22,43 @@ public class MainHook implements IXposedHookLoadPackage {
      */
     public static boolean isMicServiceEnabled() {
         if (sPrefs == null) return false;
-        sPrefs.reload();
+        reloadPrefs();
         return sPrefs.getBoolean("mic_service_enabled", false)
-            && sPrefs.getBoolean("enabled", false);
+                && sPrefs.getBoolean("enabled", false);
+    }
+
+    public static String getPcIp() {
+        if (sPrefs == null) return "";
+        reloadPrefs();
+        return sPrefs.getString("pc_ip", "");
+    }
+
+    public static int getPcPort() {
+        if (sPrefs == null) return 9876;
+        reloadPrefs();
+        return sPrefs.getInt("pc_port", 9876);
     }
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
-        // 读取模块配置
-        sPrefs = new XSharedPreferences("com.pcmic.xposed", "pcmic_config");
+        if (MODULE_PACKAGE.equals(lpparam.packageName)) {
+            return;
+        }
+
+        sPrefs = new XSharedPreferences(MODULE_PACKAGE, PREFS_NAME);
         sPrefs.makeWorldReadable();
-        sPrefs.reload();
+        reloadPrefs();
 
-        boolean enabled = sPrefs.getBoolean("enabled", false);
-        if (!enabled) {
-            XposedBridge.log(TAG + ": 模块未启用，跳过 " + lpparam.packageName);
-            return;
-        }
-
-        String pcIp = sPrefs.getString("pc_ip", "");
-        int pcPort = sPrefs.getInt("pc_port", 9876);
-
-        if (pcIp.isEmpty()) {
-            XposedBridge.log(TAG + ": PC IP 未配置，跳过");
-            return;
-        }
+        String pcIp = getPcIp();
+        int pcPort = getPcPort();
 
         XposedBridge.log(TAG + ": hooking " + lpparam.packageName
-                + " -> " + pcIp + ":" + pcPort);
+                + " -> " + (pcIp.isEmpty() ? "<not-configured>" : pcIp + ":" + pcPort));
 
-        // 初始化音频接收器（单例）
         AudioStreamReceiver receiver = AudioStreamReceiver.getInstance();
         receiver.configure(pcIp, pcPort);
 
-        // 安装 AudioRecord hook
         AudioRecordHook.install(receiver);
-
-        // 安装启动 Toast 通知
         ToastNotifier.install(lpparam);
     }
 }

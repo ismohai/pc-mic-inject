@@ -1,8 +1,13 @@
 package com.pcmic.xposed;
 
+import android.content.Context;
+import android.net.wifi.WifiManager;
+
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
-import java.util.Iterator;
+import java.net.InetSocketAddress;
+import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.json.JSONObject;
@@ -16,10 +21,16 @@ public class DiscoveryClient {
     public static final int DISCOVERY_PORT = 9877;
     private static final long STALE_MS = 6000;
 
+    private final Context appContext;
     private final CopyOnWriteArrayList<PcInfo> pcList = new CopyOnWriteArrayList<>();
     private volatile boolean running;
     private Thread listenThread;
     private Listener listener;
+    private WifiManager.MulticastLock multicastLock;
+
+    public DiscoveryClient(Context context) {
+        this.appContext = context.getApplicationContext();
+    }
 
     public interface Listener {
         void onPcListUpdated(CopyOnWriteArrayList<PcInfo> list);
@@ -50,6 +61,7 @@ public class DiscoveryClient {
     public void start() {
         if (running) return;
         running = true;
+        acquireMulticastLock();
         listenThread = new Thread(this::listenLoop, "PcMic-Discovery");
         listenThread.setDaemon(true);
         listenThread.start();
@@ -58,11 +70,15 @@ public class DiscoveryClient {
     public void stop() {
         running = false;
         if (listenThread != null) listenThread.interrupt();
+        releaseMulticastLock();
     }
 
     private void listenLoop() {
+        DatagramSocket sock = null;
         try {
-            DatagramSocket sock = new DatagramSocket(DISCOVERY_PORT);
+            sock = new DatagramSocket(null);
+            sock.setReuseAddress(true);
+            sock.bind(new InetSocketAddress(DISCOVERY_PORT));
             sock.setBroadcast(true);
             sock.setSoTimeout(2000);
             byte[] buf = new byte[1024];
@@ -71,21 +87,26 @@ public class DiscoveryClient {
                 try {
                     DatagramPacket pkt = new DatagramPacket(buf, buf.length);
                     sock.receive(pkt);
-                    String json = new String(pkt.getData(), 0, pkt.getLength(), "UTF-8");
+                    String json = new String(pkt.getData(), 0, pkt.getLength(), StandardCharsets.UTF_8);
                     JSONObject obj = new JSONObject(json);
                     String name = obj.optString("name", "PC");
                     String ip = obj.optString("ip", "");
+                    if (ip.isEmpty() && pkt.getAddress() != null) {
+                        ip = pkt.getAddress().getHostAddress();
+                    }
                     int port = obj.optInt("port", 9876);
                     if (!ip.isEmpty()) {
                         updatePc(name, ip, port);
                     }
-                } catch (java.net.SocketTimeoutException ignored) {
+                } catch (SocketTimeoutException ignored) {
+                } catch (Exception ignored) {
                 }
                 pruneStale();
             }
-            sock.close();
         } catch (Exception e) {
             e.printStackTrace();
+        } finally {
+            if (sock != null) sock.close();
         }
     }
 
@@ -107,19 +128,32 @@ public class DiscoveryClient {
 
     private void pruneStale() {
         long now = System.currentTimeMillis();
-        boolean changed = false;
-        Iterator<PcInfo> it = pcList.iterator();
-        while (it.hasNext()) {
-            if (now - it.next().lastSeen > STALE_MS) {
-                it.remove();
-                changed = true;
-            }
-        }
+        boolean changed = pcList.removeIf(pc -> now - pc.lastSeen > STALE_MS);
         if (changed) notifyListener();
     }
 
     private void notifyListener() {
         Listener l = listener;
-        if (l != null) l.onPcListUpdated(pcList);
+        if (l != null) l.onPcListUpdated(new CopyOnWriteArrayList<>(pcList));
+    }
+
+    private void acquireMulticastLock() {
+        try {
+            WifiManager wifiManager = (WifiManager) appContext.getSystemService(Context.WIFI_SERVICE);
+            if (wifiManager == null) return;
+            multicastLock = wifiManager.createMulticastLock("PcMic-Discovery");
+            multicastLock.setReferenceCounted(false);
+            multicastLock.acquire();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void releaseMulticastLock() {
+        try {
+            if (multicastLock != null && multicastLock.isHeld()) {
+                multicastLock.release();
+            }
+        } catch (Exception ignored) {
+        }
     }
 }

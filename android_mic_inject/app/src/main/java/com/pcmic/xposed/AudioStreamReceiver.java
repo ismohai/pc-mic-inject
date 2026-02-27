@@ -2,6 +2,7 @@ package com.pcmic.xposed;
 
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -30,8 +31,8 @@ public class AudioStreamReceiver {
 
     private static AudioStreamReceiver sInstance;
 
-    private String host;
-    private int port;
+    private volatile String host = "";
+    private volatile int port = 9876;
 
     private final byte[] ring = new byte[RING_SIZE];
     private int writePos = 0;
@@ -39,6 +40,8 @@ public class AudioStreamReceiver {
     private final Object lock = new Object();
 
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private volatile boolean connected;
+    private volatile Socket activeSocket;
     private Thread recvThread;
 
     private AudioStreamReceiver() {}
@@ -48,22 +51,31 @@ public class AudioStreamReceiver {
         return sInstance;
     }
 
-    public void configure(String host, int port) {
-        this.host = host;
+    public synchronized void configure(String host, int port) {
+        String newHost = host == null ? "" : host.trim();
+        boolean changed = !newHost.equals(this.host) || port != this.port;
+        this.host = newHost;
         this.port = port;
+        if (changed) {
+            closeActiveSocket();
+        }
     }
 
-    public void start() {
-        if (running.getAndSet(true)) return;
+    public synchronized void start() {
+        if (running.get() && recvThread != null && recvThread.isAlive()) return;
+        running.set(true);
         recvThread = new Thread(this::recvLoop, "PcMic-TCP");
         recvThread.setDaemon(true);
         recvThread.start();
         XposedBridge.log(TAG + ": receiver thread started");
     }
 
-    public void stop() {
+    public synchronized void stop() {
         running.set(false);
+        connected = false;
         if (recvThread != null) recvThread.interrupt();
+        closeActiveSocket();
+        clearRing();
     }
 
     /** Read raw 48kHz/stereo/24bit PCM from ring buffer, pad with silence if insufficient */
@@ -83,26 +95,47 @@ public class AudioStreamReceiver {
     }
 
     public boolean isConnected() {
-        return running.get();
+        return connected;
     }
 
     private void recvLoop() {
         while (running.get()) {
+            Socket sock = null;
             try {
+                if (host.isEmpty()) {
+                    connected = false;
+                    clearRing();
+                    sleepReconnect();
+                    continue;
+                }
+
                 XposedBridge.log(TAG + ": connecting " + host + ":" + port);
-                Socket sock = new Socket(host, port);
+                sock = new Socket();
+                activeSocket = sock;
+                sock.connect(new InetSocketAddress(host, port), 3000);
                 sock.setTcpNoDelay(true);
                 sock.setReceiveBufferSize(65536);
                 DataInputStream dis = new DataInputStream(sock.getInputStream());
+                connected = true;
                 XposedBridge.log(TAG + ": connected");
                 readFrames(dis);
-                sock.close();
-            } catch (IOException e) {
+            } catch (Exception e) {
                 XposedBridge.log(TAG + ": connection failed: " + e.getMessage());
+            } finally {
+                connected = false;
+                closeSocketQuietly(sock);
+                activeSocket = null;
+                clearRing();
             }
-            if (running.get()) {
-                try { Thread.sleep(RECONNECT_MS); } catch (InterruptedException ignored) {}
-            }
+            sleepReconnect();
+        }
+    }
+
+    private void sleepReconnect() {
+        if (!running.get()) return;
+        try {
+            Thread.sleep(RECONNECT_MS);
+        } catch (InterruptedException ignored) {
         }
     }
 
@@ -125,11 +158,34 @@ public class AudioStreamReceiver {
 
     private void writeToRing(byte[] data) {
         synchronized (lock) {
-            for (byte b : data) {
-                ring[writePos] = b;
-                writePos = (writePos + 1) % RING_SIZE;
+            int len = data.length;
+            int firstPart = Math.min(len, RING_SIZE - writePos);
+            System.arraycopy(data, 0, ring, writePos, firstPart);
+            if (firstPart < len) {
+                System.arraycopy(data, firstPart, ring, 0, len - firstPart);
             }
-            available = Math.min(available + data.length, RING_SIZE);
+            writePos = (writePos + len) % RING_SIZE;
+            available = Math.min(available + len, RING_SIZE);
+        }
+    }
+
+    private void clearRing() {
+        synchronized (lock) {
+            writePos = 0;
+            available = 0;
+        }
+    }
+
+    private void closeActiveSocket() {
+        closeSocketQuietly(activeSocket);
+        activeSocket = null;
+    }
+
+    private void closeSocketQuietly(Socket socket) {
+        if (socket == null) return;
+        try {
+            socket.close();
+        } catch (IOException ignored) {
         }
     }
 }

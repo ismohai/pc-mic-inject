@@ -1,0 +1,47 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Generate signing keystore
+        working-directory: android_mic_inject
+        run: |
+          mkdir -p keystore
+          keytool -genkeypair -v \
+            -keystore keystore/release.jks \
+            -storepass pcmic12345 \
+            -keypass pcmic12345 \
+            -alias pcmic \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=PcMicInject, OU=Dev, O=PcMic, L=Unknown, ST=Unknown, C=CN"
+
+      - name: Grant execute permission for gradlew
+        working-directory: android_mic_inject
+        run: chmod +x gradlew
+
+      - name: Build Release APK
+        working-directory: android_mic_inject
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PcMicInject-release
+          path: android_mic_inject/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error

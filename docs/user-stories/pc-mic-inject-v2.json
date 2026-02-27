@@ -1,0 +1,45 @@
+[
+  {
+    "category": "functional",
+    "description": "Mic service toggle gates injection without app restart",
+    "steps": [
+      "Connect to a discovered PC in SettingsActivity",
+      "Enable mic_service_enabled and start recording in a hooked app",
+      "Disable mic_service_enabled and verify injected override stops",
+      "Enable mic_service_enabled again and verify stream resumes with latest pc_ip and pc_port"
+    ],
+    "passes": false
+  },
+  {
+    "category": "edge-case",
+    "description": "Discovery loop survives malformed UDP packets",
+    "steps": [
+      "Start DiscoveryClient listener on discovery port",
+      "Receive malformed or non-JSON UDP packet",
+      "Verify listener keeps running after parsing error",
+      "Verify stale peers are pruned after timeout"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "PC streamer supports auto input selection and CLI flags",
+    "steps": [
+      "Run audio_streamer.py with --list to enumerate input devices",
+      "Run audio_streamer.py without --device and verify default input selection path",
+      "Run audio_streamer.py with --device <id> and verify selected device path",
+      "Verify stream open retries with lower channel counts when initial open fails"
+    ],
+    "passes": false
+  },
+  {
+    "category": "integration",
+    "description": "GitHub Build APK workflow succeeds and uploads artifact",
+    "steps": [
+      "Trigger Build APK workflow on GitHub",
+      "Wait for run completion and verify success conclusion",
+      "Verify PcMicInject-release artifact is present"
+    ],
+    "passes": false
+  }
+]

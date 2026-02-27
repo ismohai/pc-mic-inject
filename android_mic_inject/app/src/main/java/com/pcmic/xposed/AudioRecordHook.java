@@ -10,6 +10,10 @@ import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 
+import java.util.Collections;
+import java.util.Set;
+import java.util.WeakHashMap;
+
 /**
  * Hook AudioRecord read() overloads.
  * Source stream: 48kHz stereo 24bit from AudioStreamReceiver.
@@ -19,18 +23,74 @@ public class AudioRecordHook {
 
     private static final String TAG = "PcMic-Hook";
 
+    // Track AudioRecord instances that are actively recording under our control
+    private static final Set<AudioRecord> activeRecords =
+            Collections.newSetFromMap(new WeakHashMap<>());
+
     public static void install(AudioStreamReceiver receiver) {
+
+        // --- Hook startRecording() ---
         XposedHelpers.findAndHookMethod(
             AudioRecord.class, "startRecording",
             new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam p) {
-                    if (!MainHook.isMicServiceEnabled()) return;
+                    if (!MainHook.isMicServiceEnabled()) {
+                        return;  // 服务未启用，不干预
+                    }
+                    AudioRecord ar = (AudioRecord) p.thisObject;
+                    synchronized (activeRecords) {
+                        activeRecords.add(ar);
+                    }
+                    receiver.configure(MainHook.getPcIp(), MainHook.getPcPort());
                     receiver.start();
+                    XposedBridge.log(TAG + ": startRecording intercepted, receiver started");
                 }
             }
         );
 
+        // --- Hook stop() --- 防止停止后泄漏原声
+        XposedHelpers.findAndHookMethod(
+            AudioRecord.class, "stop",
+            new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam p) {
+                    AudioRecord ar = (AudioRecord) p.thisObject;
+                    boolean wasActive;
+                    synchronized (activeRecords) {
+                        wasActive = activeRecords.remove(ar);
+                    }
+                    if (wasActive) {
+                        // 只有当所有被追踪的AudioRecord都停止后才停止接收
+                        synchronized (activeRecords) {
+                            if (activeRecords.isEmpty()) {
+                                receiver.stop();
+                                XposedBridge.log(TAG + ": all records stopped, receiver stopped");
+                            }
+                        }
+                    }
+                }
+            }
+        );
+
+        // --- Hook release() --- 同样清理
+        XposedHelpers.findAndHookMethod(
+            AudioRecord.class, "release",
+            new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam p) {
+                    AudioRecord ar = (AudioRecord) p.thisObject;
+                    synchronized (activeRecords) {
+                        activeRecords.remove(ar);
+                        if (activeRecords.isEmpty()) {
+                            receiver.stop();
+                        }
+                    }
+                }
+            }
+        );
+
+        // --- Hook all read() overloads ---
         XposedHelpers.findAndHookMethod(AudioRecord.class, "read",
             byte[].class, int.class, int.class,
             new ReadByteArrayHook(receiver));
@@ -59,7 +119,7 @@ public class AudioRecordHook {
             float[].class, int.class, int.class, int.class,
             new ReadFloatArrayHook(receiver));
 
-        XposedBridge.log(TAG + ": all read() overloads hooked (48kHz/stereo/24bit source)");
+        XposedBridge.log(TAG + ": all overloads hooked (start/stop/release/read)");
     }
 
     private static int getSampleRate(Object ar) {
@@ -140,7 +200,7 @@ public class AudioRecordHook {
         final AudioStreamReceiver r;
         ReadByteArrayHook(AudioStreamReceiver r) { this.r = r; }
         @Override
-        protected void afterHookedMethod(MethodHookParam p) {
+        protected void beforeHookedMethod(MethodHookParam p) {
             if (!MainHook.isMicServiceEnabled()) return;
             byte[] buf = (byte[]) p.args[0];
             int off = (int) p.args[1], size = (int) p.args[2];
@@ -152,6 +212,7 @@ public class AudioRecordHook {
             r.read(tmp, 0, srcBytes);
             byte[] out = convertToTarget(tmp, rate, ch, outSamples);
             System.arraycopy(out, 0, buf, off, Math.min(out.length, size));
+            p.setResult(size);
         }
     }
 
@@ -160,7 +221,7 @@ public class AudioRecordHook {
         final AudioStreamReceiver r;
         ReadShortArrayHook(AudioStreamReceiver r) { this.r = r; }
         @Override
-        protected void afterHookedMethod(MethodHookParam p) {
+        protected void beforeHookedMethod(MethodHookParam p) {
             if (!MainHook.isMicServiceEnabled()) return;
             short[] buf = (short[]) p.args[0];
             int off = (int) p.args[1], size = (int) p.args[2];
@@ -174,6 +235,7 @@ public class AudioRecordHook {
             ByteBuffer bb = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN);
             int n = Math.min(out.length / 2, size);
             for (int i = 0; i < n; i++) buf[off + i] = bb.getShort(i * 2);
+            p.setResult(size);
         }
     }
 
@@ -182,7 +244,7 @@ public class AudioRecordHook {
         final AudioStreamReceiver r;
         ReadByteBufferHook(AudioStreamReceiver r) { this.r = r; }
         @Override
-        protected void afterHookedMethod(MethodHookParam p) {
+        protected void beforeHookedMethod(MethodHookParam p) {
             if (!MainHook.isMicServiceEnabled()) return;
             ByteBuffer buf = (ByteBuffer) p.args[0];
             int size = (int) p.args[1];
@@ -197,6 +259,7 @@ public class AudioRecordHook {
             buf.position(0);
             buf.put(out, 0, copy);
             buf.position(0);
+            p.setResult(copy);
         }
     }
 
@@ -205,7 +268,7 @@ public class AudioRecordHook {
         final AudioStreamReceiver r;
         ReadFloatArrayHook(AudioStreamReceiver r) { this.r = r; }
         @Override
-        protected void afterHookedMethod(MethodHookParam p) {
+        protected void beforeHookedMethod(MethodHookParam p) {
             if (!MainHook.isMicServiceEnabled()) return;
             float[] buf = (float[]) p.args[0];
             int off = (int) p.args[1], size = (int) p.args[2];
@@ -219,6 +282,7 @@ public class AudioRecordHook {
             ByteBuffer bb = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN);
             int n = Math.min(out.length / 2, size);
             for (int i = 0; i < n; i++) buf[off + i] = bb.getShort(i * 2) / 32768.0f;
+            p.setResult(size);
         }
     }
 }
