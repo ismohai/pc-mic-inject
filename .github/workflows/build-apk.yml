@@ -8,6 +8,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android_mic_inject
 
     steps:
       - name: Checkout code
@@ -19,8 +22,10 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Generate signing keystore
-        working-directory: android_mic_inject
         run: |
           mkdir -p keystore
           keytool -genkeypair -v \
@@ -32,12 +37,10 @@ jobs:
             -dname "CN=PcMicInject, OU=Dev, O=PcMic, L=Unknown, ST=Unknown, C=CN"
 
       - name: Grant execute permission for gradlew
-        working-directory: android_mic_inject
         run: chmod +x gradlew
 
       - name: Build Release APK
-        working-directory: android_mic_inject
-        run: ./gradlew assembleRelease --no-daemon
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
