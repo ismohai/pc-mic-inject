@@ -13,6 +13,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # ---- Build KSU Module (NDK) ----
       - name: Setup Android NDK
         uses: nttld/setup-ndk@v1
         id: setup-ndk
@@ -34,7 +35,6 @@ jobs:
           mkdir -p $MODULE_DIR/META-INF/com/google/android
           mkdir -p $MODULE_DIR/zygisk
 
-          # Copy module files
           cp module.prop $MODULE_DIR/
           cp customize.sh $MODULE_DIR/
           cp service.sh $MODULE_DIR/
@@ -43,32 +43,70 @@ jobs:
           cp META-INF/com/google/android/update-binary $MODULE_DIR/META-INF/com/google/android/
           cp META-INF/com/google/android/updater-script $MODULE_DIR/META-INF/com/google/android/
 
-          # Copy Zygisk modules (.so files go in zygisk/ named by ABI)
           for abi in arm64-v8a armeabi-v7a; do
             if [ -f "libs/$abi/libzygisk.so" ]; then
               cp "libs/$abi/libzygisk.so" "$MODULE_DIR/zygisk/$abi.so"
             fi
           done
 
-          # Copy daemon binary (use arm64 by default)
           if [ -f "libs/arm64-v8a/pcmic-daemon" ]; then
             cp "libs/arm64-v8a/pcmic-daemon" "$MODULE_DIR/pcmic-daemon"
-          elif [ -f "libs/armeabi-v7a/pcmic-daemon" ]; then
-            cp "libs/armeabi-v7a/pcmic-daemon" "$MODULE_DIR/pcmic-daemon"
           fi
 
-          chmod 755 $MODULE_DIR/pcmic-daemon
-          chmod 755 $MODULE_DIR/service.sh
-          chmod 755 $MODULE_DIR/customize.sh
-          chmod 755 $MODULE_DIR/uninstall.sh
+          chmod 755 $MODULE_DIR/pcmic-daemon $MODULE_DIR/service.sh $MODULE_DIR/customize.sh $MODULE_DIR/uninstall.sh
 
-          # Create ZIP
           cd $MODULE_DIR
           zip -r9 ../PcMic-Module-v1.0.0.zip . -x '*.DS_Store'
 
-      - name: Upload Module ZIP
+      # ---- Build Companion App ----
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK components for App
+        run: sdkmanager "platforms;android-33" "build-tools;33.0.2"
+
+      - name: Setup Gradle for App
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '7.6.1'
+
+      - name: Build Companion App
+        working-directory: companion_app
+        run: gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log || true
+
+      - name: Find APK
+        id: find-apk
+        run: |
+          APK=$(find companion_app -name "*.apk" -path "*/release/*" | head -1)
+          echo "apk_path=$APK" >> $GITHUB_OUTPUT
+          if [ -n "$APK" ]; then
+            echo "APK found: $APK"
+          else
+            echo "WARNING: No APK found, checking build log..."
+            tail -30 companion_app/build.log || true
+          fi
+
+      # ---- Collect all artifacts ----
+      - name: Prepare dist
+        run: |
+          mkdir -p dist
+          cp ksu_module/PcMic-Module-v1.0.0.zip dist/
+          cp -r pc_audio_streamer dist/
+          cp start_streamer.bat dist/
+          APK="${{ steps.find-apk.outputs.apk_path }}"
+          if [ -n "$APK" ] && [ -f "$APK" ]; then
+            cp "$APK" dist/PcMic-Settings.apk
+          fi
+
+      - name: Upload dist
         uses: actions/upload-artifact@v4
         with:
-          name: PcMic-Module
-          path: ksu_module/PcMic-Module-v1.0.0.zip
+          name: PcMic-dist
+          path: dist/
           if-no-files-found: error

@@ -100,7 +100,7 @@ class StreamerApp:
         self.log_text.configure(state=tk.DISABLED)
 
         # ---- 底部信息 ----
-        ttk.Label(main, text="提示: 手机端安装 Xposed 模块后，会自动发现此电脑",
+        ttk.Label(main, text="提示: 手机端安装 KernelSU 模块后，启动推流即可自动替换麦克风",
                   style="Info.TLabel").pack(anchor=tk.W, pady=(6, 0))
 
         # 初始化设备列表
