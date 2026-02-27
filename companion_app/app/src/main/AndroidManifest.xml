@@ -4,7 +4,6 @@
     <application
         android:label="PcMic设置"
         android:theme="@style/AppTheme"
-        android:icon="@mipmap/ic_launcher"
         android:supportsRtl="true">
 
         <activity
