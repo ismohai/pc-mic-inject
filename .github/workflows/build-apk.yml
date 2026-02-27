@@ -26,8 +26,7 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install SDK components
-        run: |
-          sdkmanager "platforms;android-33" "build-tools;33.0.2"
+        run: sdkmanager "platforms;android-33" "build-tools;33.0.2"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -46,21 +45,9 @@ jobs:
             -dname "CN=PcMicInject, OU=Dev, O=PcMic, L=Unknown, ST=Unknown, C=CN"
 
       - name: Build Release APK
-        run: gradle assembleRelease --no-daemon --stacktrace 2>&1 || true
-
-      - name: Show build errors if any
-        if: always()
-        run: |
-          echo "=== Checking for build outputs ==="
-          find . -name "*.apk" -type f 2>/dev/null || echo "No APK found"
-          echo "=== Checking for build logs ==="
-          find . -name "*.log" -path "*/build/*" -type f -exec tail -50 {} \; 2>/dev/null || echo "No build logs"
-
-      - name: Retry build with info logging
-        run: gradle assembleRelease --no-daemon --info --stacktrace
+        run: gradle assembleRelease --no-daemon --stacktrace
 
       - name: Upload APK artifact
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: PcMicInject-release
