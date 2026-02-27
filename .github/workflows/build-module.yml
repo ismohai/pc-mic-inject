@@ -1,0 +1,74 @@
+name: Build KSU Module
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r25c
+
+      - name: Build native code
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          cd ksu_module/jni
+          $ANDROID_NDK_HOME/ndk-build NDK_PROJECT_PATH=.. APP_BUILD_SCRIPT=./Android.mk NDK_APPLICATION_MK=./Application.mk -j$(nproc)
+
+      - name: Prepare module ZIP
+        run: |
+          cd ksu_module
+          MODULE_DIR=build_module
+
+          mkdir -p $MODULE_DIR/META-INF/com/google/android
+          mkdir -p $MODULE_DIR/zygisk
+
+          # Copy module files
+          cp module.prop $MODULE_DIR/
+          cp customize.sh $MODULE_DIR/
+          cp service.sh $MODULE_DIR/
+          cp uninstall.sh $MODULE_DIR/
+          cp pcmic.conf $MODULE_DIR/
+          cp META-INF/com/google/android/update-binary $MODULE_DIR/META-INF/com/google/android/
+          cp META-INF/com/google/android/updater-script $MODULE_DIR/META-INF/com/google/android/
+
+          # Copy Zygisk modules (.so files go in zygisk/ named by ABI)
+          for abi in arm64-v8a armeabi-v7a; do
+            if [ -f "libs/$abi/libzygisk.so" ]; then
+              cp "libs/$abi/libzygisk.so" "$MODULE_DIR/zygisk/$abi.so"
+            fi
+          done
+
+          # Copy daemon binary (use arm64 by default)
+          if [ -f "libs/arm64-v8a/pcmic-daemon" ]; then
+            cp "libs/arm64-v8a/pcmic-daemon" "$MODULE_DIR/pcmic-daemon"
+          elif [ -f "libs/armeabi-v7a/pcmic-daemon" ]; then
+            cp "libs/armeabi-v7a/pcmic-daemon" "$MODULE_DIR/pcmic-daemon"
+          fi
+
+          chmod 755 $MODULE_DIR/pcmic-daemon
+          chmod 755 $MODULE_DIR/service.sh
+          chmod 755 $MODULE_DIR/customize.sh
+          chmod 755 $MODULE_DIR/uninstall.sh
+
+          # Create ZIP
+          cd $MODULE_DIR
+          zip -r9 ../PcMic-Module-v1.0.0.zip . -x '*.DS_Store'
+
+      - name: Upload Module ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: PcMic-Module
+          path: ksu_module/PcMic-Module-v1.0.0.zip
+          if-no-files-found: error

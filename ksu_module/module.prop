@@ -1,0 +1,6 @@
+id=pcmic
+name=PC Mic Inject
+version=v1.0.0
+versionCode=1
+author=PcMic
+description=使用电脑作为手机的虚拟麦克风输入。通过WiFi从PC接收音频，替换所有应用的麦克风。
